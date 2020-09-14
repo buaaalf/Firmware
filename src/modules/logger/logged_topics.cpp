@@ -44,6 +44,7 @@ using namespace px4::logger;
 
 void LoggedTopics::add_default_topics()
 {
+	/*
 	add_topic("actuator_armed");
 	add_topic("actuator_controls_0", 100);
 	add_topic("actuator_controls_1", 100);
@@ -134,7 +135,37 @@ void LoggedTopics::add_default_topics()
 	add_topic("vehicle_attitude_groundtruth", 10);
 	add_topic("vehicle_global_position_groundtruth", 100);
 	add_topic("vehicle_local_position_groundtruth", 100);
-#endif /* CONFIG_ARCH_BOARD_PX4_SITL */
+#endif // CONFIG_ARCH_BOARD_PX4_SITL
+	*/
+
+	//log all msg in 100Hz
+	add_topic("vehicle_status",10);
+	add_topic("vehicle_status_flags",10);
+	add_topic("vtol_vehicle_status", 10);
+
+	add_topic("vehicle_control_mode",10);
+
+
+	add_topic("input_rc",10);
+	add_topic("manual_control_setpoint",10);
+
+	//speed
+	add_topic("vehicle_gps_position",10);
+	add_topic("airspeed",10);
+
+	add_topic("input_rc",10);
+	//attitude
+	add_topic("vehicle_attitude_setpoint",10);
+	add_topic("vehicle_attitude",10);
+
+	//angle rates and acc
+	add_topic("sensor_combined",10);
+	add_topic("vehicle_rates_setpoint",10);
+
+	//actuators
+	add_topic("actuator_armed",10);
+	add_topic_multi("actuator_outputs", 100);
+
 }
 
 void LoggedTopics::add_high_rate_topics()
