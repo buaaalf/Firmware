@@ -272,6 +272,272 @@ MulticopterRateControl::Run()
 			_rate_control.getRateControlStatus(rate_ctrl_status);
 			rate_ctrl_status.timestamp = hrt_absolute_time();
 			_controller_status_pub.publish(rate_ctrl_status);
+			
+						//增加测试代码的地方：
+			//输入：_manual_control_setpoint.x _manual_control_setpoint.y _manual_control_setpoint.r _thrust_sp = _manual_control_setpoint.z
+			//输出：_thrust_sp ； att_control(0) att_control(1) att_control(2)
+			/*
+			%MC混控逻辑如下：
+			%Channel 1 connects to the right (starboard) motor.
+			%Channel 2 connects to the left (port) motor.
+			
+			%  电机1 = （油门-滚转（固定翼偏航））*0.5  *1000+1000 右电机  INDEX_ROLL  _manual_control_setpoint.y
+			%  电机2 = （油门+滚转（固定翼偏航））*0.5  *1000+1000 左电机 
+			%Channel 5 connects to the right (starboard) elevon. 
+			%Channel 6 connects to the left (port) elevon.
+			%  舵机1 = （偏航（固定翼滚转）- 俯仰）*0.75 *500 +1500
+			%  舵机2 = （偏航（固定翼滚转）+ 俯仰）*0.75 *500 +1500
+			RW =RW1;
+			*/
+			
+			///////////////////////////////定义变量及初始化：静态变量，存储上次状态////////////////////////////////////////////////////////////////
+			//存储模式状态:
+			//定义时间变量
+			static hrt_abstime inittime= hrt_absolute_time();
+			static hrt_abstime Throttle_inittime = hrt_absolute_time();
+			//使用事件标志进行.
+			static uint8_t AutoPhaseFlag = 0;
+			static bool  Throttle_Change_flag = 0;
+			static float Last__manual_control_setpoint_z = 0;
+			static bool  Last_TestcontrolMode = 0;
+			static bool  TestcontrolMode = 0;
+
+			
+			///////////////////////////////////更新和维护手动/自动状态////////////////////////////////////////////////////////////////
+			Last_TestcontrolMode = TestcontrolMode;
+			
+			if ( !manual_rate_sp ) 
+			{
+				TestcontrolMode = 1;
+			}
+			else
+			{
+				TestcontrolMode = 0;
+			}
+			
+			
+			///////////////////////////////////手动模式处理，自动相关变量处理/////////////////////////////////////////////////////////////
+			//如果是手动:直连相应手动指令并更新自动相关状态标志
+			if ( TestcontrolMode == 0 ) //&& manual_control_updated
+			{
+				_thrust_sp =_manual_control_setpoint.z;
+				att_control(1) = _manual_control_setpoint.x；
+
+				//自动相关局部变量复位：
+				AutoPhaseFlag = 0;
+				inittime= hrt_absolute_time();
+				
+				Last__manual_control_setpoint_z = 0；
+				Throttle_Change_flag = 0;
+				Throttle_inittime = hrt_absolute_time();
+			}
+
+			
+			///////////////////////////////////////油门信号处理//////////////////////////////////////////////////////////
+			//如果是自动则执行以下动作：
+			if (controlMode ==1)
+			{
+				//油门指令的处置：把油门杆当成阶跃指令
+				if ( Last__manual_control_setpoint_z <=0.3 && _manual_control_setpoint.z >= 0.7 && Throttle_Change_flag == 0)
+				{
+					//要持续一段时间再重置
+					Throttle_Change_flag = 1;
+					Throttle_inittime = hrt_absolute_time();
+				}
+				//5秒时间
+				else if (Throttle_Change_flag == 1 && _manual_control_setpoint.z >= 0.7)
+				{
+					if (hrt_absolute_time()-Throttle_inittime) > 5000000
+					{
+						//重新初始化舵面，并重新初始化舵机自动化序列相关变量
+						AutoPhaseFlag = 1;
+						inittime= hrt_absolute_time();
+						att_control(1) = 0；//0度 舵面归中
+										
+						//油门增加0.1：
+						if (_thrust_sp <=0.9)
+						{
+							_thrust_sp = _thrust_sp + 0.1;
+						}
+
+						Throttle_Change_flag = 0;	//下次跳出
+					}
+					else
+					{
+						Throttle_Change_flag = 0;
+					}
+				}
+				//更新油门状态
+				Last__manual_control_setpoint_z = _manual_control_setpoint.z;
+			}
+
+			
+			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			//如果 之前是手动,目前是自动:则初始化舵机自动序列相关变量:
+			if ( controlMode ==1 && Last_controlMode ==0)
+			{
+				AutoPhaseFlag = 1
+				inittime= hrt_absolute_time();
+				
+				att_control(1) = 0; 	//舵面归中
+				_thrust_sp = 0; 		//油门置零
+			}
+			
+			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			//如果是自动则执行以下动作：
+			if (controlMode ==1)
+			{
+				Switch (AutoPhaseFlag)
+				{
+					Case 1:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.8；//0.02 40度
+							AutoPhaseFlag = 2;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 2:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.7；//0.02 35度
+							AutoPhaseFlag = 3;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 3:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.6；//0.02 
+							AutoPhaseFlag = 4;
+							inittime= hrt_absolute_time();
+						}
+						break;
+
+					case 4:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.5；//0.02 
+							AutoPhaseFlag = 5;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 5:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.4；//0.02 
+							AutoPhaseFlag = 6;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 6:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.3；//0.02 35度
+							AutoPhaseFlag = 7;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 7:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.2；//0.02 
+							AutoPhaseFlag = 8;
+							inittime= hrt_absolute_time();
+						}
+						break;
+
+					case 8:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = -0.1；//0.02 
+							AutoPhaseFlag = 9;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 9:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0；//0.02 
+							AutoPhaseFlag = 10;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 10:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.1；//0.02 
+							AutoPhaseFlag = 11;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 11:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.2；//0.02 
+							AutoPhaseFlag = 12;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 12:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.3；//0.02 
+							AutoPhaseFlag = 13;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 13:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.4；//0.02 
+							AutoPhaseFlag = 14;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 14:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.5；//0.02 
+							AutoPhaseFlag = 15;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 15:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.6；//0.02 
+							AutoPhaseFlag = 16;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 16:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.7；//0.02 
+							AutoPhaseFlag = 17;
+							inittime= hrt_absolute_time();
+						}
+						break;
+					case 17:
+						If (hrt_absolute_time() – inittime)>30000000
+						{
+							att_control(1) = 0.8；//0.02 
+							AutoPhaseFlag = 1;
+							inittime= hrt_absolute_time();
+						}
+						break;
+
+					default:
+						break;
+				}
+			}
+			
+			
+			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			//其他两通道置零：
+			att_control(0) = 0;
+			att_control(2) = 0;
 
 			// publish actuator controls
 			actuator_controls_s actuators{};
