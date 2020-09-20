@@ -38,6 +38,8 @@
 #include <mathlib/math/Limits.hpp>
 #include <mathlib/math/Functions.hpp>
 
+#include <systemlib/mavlink_log.h>
+
 using namespace matrix;
 using namespace time_literals;
 using math::radians;
@@ -178,8 +180,8 @@ MulticopterRateControl::Run()
 		// generate the rate setpoint from sticks?
 		bool manual_rate_sp = false;
 
-		if (_v_control_mode.flag_control_manual_enabled &&
-		    !_v_control_mode.flag_control_altitude_enabled &&
+		//_v_control_mode.flag_control_manual_enabled &&
+		if (!_v_control_mode.flag_control_altitude_enabled &&
 		    !_v_control_mode.flag_control_velocity_enabled &&
 		    !_v_control_mode.flag_control_position_enabled) {
 
@@ -221,9 +223,11 @@ MulticopterRateControl::Run()
 
 				// publish rate setpoint
 				vehicle_rates_setpoint_s v_rates_sp{};
-				v_rates_sp.roll = _rates_sp(0);
+				//v_rates_sp.roll = _rates_sp(0);
+				v_rates_sp.roll = 0;
 				v_rates_sp.pitch = _rates_sp(1);
-				v_rates_sp.yaw = _rates_sp(2);
+				//v_rates_sp.yaw = _rates_sp(2);
+				v_rates_sp.yaw = 0;
 				v_rates_sp.thrust_body[0] = 0.0f;
 				v_rates_sp.thrust_body[1] = 0.0f;
 				v_rates_sp.thrust_body[2] = -_thrust_sp;
@@ -265,31 +269,34 @@ MulticopterRateControl::Run()
 			}
 
 			// run rate controller
-			const Vector3f att_control = _rate_control.update(rates, _rates_sp, angular_accel, dt, _maybe_landed || _landed);
+			Vector3f att_control_raw = _rate_control.update(rates, _rates_sp, angular_accel, dt, _maybe_landed || _landed);
+			att_control_raw(0) = 0;
+			att_control_raw(1) = 0;
+			att_control_raw(2) = 0;
 
 			// publish rate controller status
 			rate_ctrl_status_s rate_ctrl_status{};
 			_rate_control.getRateControlStatus(rate_ctrl_status);
 			rate_ctrl_status.timestamp = hrt_absolute_time();
 			_controller_status_pub.publish(rate_ctrl_status);
-			
-						//增加测试代码的地方：
+
+			//增加测试代码的地方：
 			//输入：_manual_control_setpoint.x _manual_control_setpoint.y _manual_control_setpoint.r _thrust_sp = _manual_control_setpoint.z
 			//输出：_thrust_sp ； att_control(0) att_control(1) att_control(2)
 			/*
 			%MC混控逻辑如下：
 			%Channel 1 connects to the right (starboard) motor.
 			%Channel 2 connects to the left (port) motor.
-			
+
 			%  电机1 = （油门-滚转（固定翼偏航））*0.5  *1000+1000 右电机  INDEX_ROLL  _manual_control_setpoint.y
-			%  电机2 = （油门+滚转（固定翼偏航））*0.5  *1000+1000 左电机 
-			%Channel 5 connects to the right (starboard) elevon. 
+			%  电机2 = （油门+滚转（固定翼偏航））*0.5  *1000+1000 左电机
+			%Channel 5 connects to the right (starboard) elevon.
 			%Channel 6 connects to the left (port) elevon.
 			%  舵机1 = （偏航（固定翼滚转）- 俯仰）*0.75 *500 +1500
 			%  舵机2 = （偏航（固定翼滚转）+ 俯仰）*0.75 *500 +1500
 			RW =RW1;
 			*/
-			
+
 			///////////////////////////////定义变量及初始化：静态变量，存储上次状态////////////////////////////////////////////////////////////////
 			//存储模式状态:
 			//定义时间变量
@@ -298,15 +305,15 @@ MulticopterRateControl::Run()
 			//使用事件标志进行.
 			static uint8_t AutoPhaseFlag = 0;
 			static bool  Throttle_Change_flag = 0;
-			static float Last__manual_control_setpoint_z = 0;
+			static float Last_manual_control_setpoint_z = 0;
 			static bool  Last_TestcontrolMode = 0;
 			static bool  TestcontrolMode = 0;
+			static float att_control[4]={0,0,0,0};
 
-			
 			///////////////////////////////////更新和维护手动/自动状态////////////////////////////////////////////////////////////////
-			Last_TestcontrolMode = TestcontrolMode;
-			
-			if ( !manual_rate_sp ) 
+
+
+			if (  !_v_control_mode.flag_control_manual_enabled )
 			{
 				TestcontrolMode = 1;
 			}
@@ -314,217 +321,266 @@ MulticopterRateControl::Run()
 			{
 				TestcontrolMode = 0;
 			}
-			
-			
+
+
 			///////////////////////////////////手动模式处理，自动相关变量处理/////////////////////////////////////////////////////////////
 			//如果是手动:直连相应手动指令并更新自动相关状态标志
 			if ( TestcontrolMode == 0 ) //&& manual_control_updated
 			{
-				_thrust_sp =_manual_control_setpoint.z;
-				att_control(1) = _manual_control_setpoint.x；
+				att_control[3]  =_manual_control_setpoint.z;
+				att_control[1] = _manual_control_setpoint.x;
 
 				//自动相关局部变量复位：
 				AutoPhaseFlag = 0;
 				inittime= hrt_absolute_time();
-				
-				Last__manual_control_setpoint_z = 0；
+
+				Last_manual_control_setpoint_z = 0;
 				Throttle_Change_flag = 0;
 				Throttle_inittime = hrt_absolute_time();
+
+				if ( TestcontrolMode ==0 && Last_TestcontrolMode ==1)
+				{
+					PX4_WARN("manuallmode!");
+				}
+				//mavlink_log_info(&mavlink_log_pub, "manuallmode");
 			}
 
-			
+
 			///////////////////////////////////////油门信号处理//////////////////////////////////////////////////////////
 			//如果是自动则执行以下动作：
-			if (controlMode ==1)
+			if (TestcontrolMode ==1)
 			{
 				//油门指令的处置：把油门杆当成阶跃指令
-				if ( Last__manual_control_setpoint_z <=0.3 && _manual_control_setpoint.z >= 0.7 && Throttle_Change_flag == 0)
+				if ( Last_manual_control_setpoint_z <=float(0.3) && _manual_control_setpoint.z >= float(0.7) && Throttle_Change_flag == 0)
 				{
 					//要持续一段时间再重置
 					Throttle_Change_flag = 1;
 					Throttle_inittime = hrt_absolute_time();
+					PX4_WARN("Got Big Throttle, start cnt!");
+					Last_manual_control_setpoint_z = _manual_control_setpoint.z;
+
 				}
 				//5秒时间
-				else if (Throttle_Change_flag == 1 && _manual_control_setpoint.z >= 0.7)
+				else if (Throttle_Change_flag == 1 && _manual_control_setpoint.z >= float(0.7))
 				{
-					if (hrt_absolute_time()-Throttle_inittime) > 5000000
+					if ( (hrt_absolute_time()-Throttle_inittime) >= 5000000 )
 					{
+						PX4_WARN("Big Throttle cnt finished, add rpm!");
 						//重新初始化舵面，并重新初始化舵机自动化序列相关变量
 						AutoPhaseFlag = 1;
 						inittime= hrt_absolute_time();
-						att_control(1) = 0；//0度 舵面归中
-										
-						//油门增加0.1：
-						if (_thrust_sp <=0.9)
-						{
-							_thrust_sp = _thrust_sp + 0.1;
-						}
+						att_control[1]= 0;//0度 舵面归中
 
+						//油门增加0.1：
+						if (att_control[3]  <=float(0.9))
+						{
+							att_control[3]  = att_control[3]  + float(0.1);
+						}
+						PX4_WARN("thrust:\t%8.4f",(double)att_control[3] );
+						//mavlink_log_info(&mavlink_log_pub, "add throttle");
 						Throttle_Change_flag = 0;	//下次跳出
-					}
-					else
-					{
-						Throttle_Change_flag = 0;
+						Last_manual_control_setpoint_z = 0;
 					}
 				}
 				//更新油门状态
-				Last__manual_control_setpoint_z = _manual_control_setpoint.z;
+
 			}
 
-			
+
 			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//如果 之前是手动,目前是自动:则初始化舵机自动序列相关变量:
-			if ( controlMode ==1 && Last_controlMode ==0)
+			if ( TestcontrolMode ==1 && Last_TestcontrolMode ==0)
 			{
-				AutoPhaseFlag = 1
-				inittime= hrt_absolute_time();
-				
-				att_control(1) = 0; 	//舵面归中
-				_thrust_sp = 0; 		//油门置零
+				AutoPhaseFlag = 1;
+				inittime = hrt_absolute_time();
+
+				att_control[1] = 0; 	//舵面归中
+				att_control[3]  = 0; 	//油门置零
+				PX4_WARN("ServoTest Trigged!");
+				//mavlink_log_info(&mavlink_log_pub, "ServoTest Trigged!");
 			}
-			
+			Last_TestcontrolMode = TestcontrolMode;
+			//uint64_t time_return = (uint64_t)inittime;
+
 			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//如果是自动则执行以下动作：
-			if (controlMode ==1)
+			if (TestcontrolMode ==1)
 			{
-				Switch (AutoPhaseFlag)
+				switch (AutoPhaseFlag)
 				{
-					Case 1:
-						If (hrt_absolute_time() – inittime)>30000000
+					case 1:
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.8；//0.02 40度
+							att_control[1] = -0.8;//0.02 40度
 							AutoPhaseFlag = 2;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.8!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 2:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.7；//0.02 35度
+							att_control[1] = -0.7;//0.02 35度
 							AutoPhaseFlag = 3;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.7!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 3:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.6；//0.02 
+							att_control[1] = -0.6;//0.02
 							AutoPhaseFlag = 4;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.6!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 
 					case 4:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.5；//0.02 
+							att_control[1] = -0.5;//0.02
 							AutoPhaseFlag = 5;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.5!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
+
 						}
 						break;
 					case 5:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.4；//0.02 
+							att_control[1] = -0.4;//0.02
 							AutoPhaseFlag = 6;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.4!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
+
 						}
 						break;
 					case 6:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.3；//0.02 35度
+							att_control[1] = -0.3;//0.02 35度
 							AutoPhaseFlag = 7;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.3!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
+
 						}
 						break;
 					case 7:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.2；//0.02 
+							att_control[1] = -0.2;//0.02
 							AutoPhaseFlag = 8;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.2!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 
 					case 8:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = -0.1；//0.02 
+							att_control[1] = -0.1;//0.02
 							AutoPhaseFlag = 9;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:-0.1!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 9:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0；//0.02 
+							att_control[1] = 0;//0.02
 							AutoPhaseFlag = 10;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.0!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 10:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.1；//0.02 
+							att_control[1] = 0.1;//0.02
 							AutoPhaseFlag = 11;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.1!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 11:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.2；//0.02 
+							att_control[1] = 0.2;//0.02
 							AutoPhaseFlag = 12;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.2!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 12:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.3；//0.02 
+							att_control[1] = 0.3;//0.02
 							AutoPhaseFlag = 13;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.3!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 13:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.4；//0.02 
+							att_control[1] = 0.4;//0.02
 							AutoPhaseFlag = 14;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.4!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 14:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.5；//0.02 
+							att_control[1] = 0.5;//0.02
 							AutoPhaseFlag = 15;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.5!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 15:
-						If (hrt_absolute_time() – inittime)>30000000
+						if  ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.6；//0.02 
+							att_control[1] = 0.6;//0.02
 							AutoPhaseFlag = 16;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.6!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 16:
-						If (hrt_absolute_time() – inittime)>30000000
+						if ( (hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.7；//0.02 
+							att_control[1] = 0.7;//0.02
 							AutoPhaseFlag = 17;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.7!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 					case 17:
-						If (hrt_absolute_time() – inittime)>30000000
+						if ((hrt_absolute_time() - inittime)>10000000)
 						{
-							att_control(1) = 0.8；//0.02 
+							att_control[1] = 0.8;//0.02
 							AutoPhaseFlag = 1;
 							inittime= hrt_absolute_time();
+							PX4_WARN("Servo OUt:0.8!");
+							PX4_WARN("thrust:\t%8.4f\t%8.4f\t%d",(double)Last_manual_control_setpoint_z, (double)_manual_control_setpoint.z,(int)Throttle_Change_flag);
 						}
 						break;
 
@@ -532,19 +588,22 @@ MulticopterRateControl::Run()
 						break;
 				}
 			}
-			
-			
+
+
 			//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//其他两通道置零：
-			att_control(0) = 0;
-			att_control(2) = 0;
+			att_control[0] = 0;
+			att_control[2] = 0;
+
+
+
 
 			// publish actuator controls
 			actuator_controls_s actuators{};
-			actuators.control[actuator_controls_s::INDEX_ROLL] = PX4_ISFINITE(att_control(0)) ? att_control(0) : 0.0f;
-			actuators.control[actuator_controls_s::INDEX_PITCH] = PX4_ISFINITE(att_control(1)) ? att_control(1) : 0.0f;
-			actuators.control[actuator_controls_s::INDEX_YAW] = PX4_ISFINITE(att_control(2)) ? att_control(2) : 0.0f;
-			actuators.control[actuator_controls_s::INDEX_THROTTLE] = PX4_ISFINITE(_thrust_sp) ? _thrust_sp : 0.0f;
+			actuators.control[actuator_controls_s::INDEX_ROLL] = PX4_ISFINITE(att_control[0]) ? att_control[0] : 0.0f;
+			actuators.control[actuator_controls_s::INDEX_PITCH] = PX4_ISFINITE(att_control[1]) ? att_control[1] : 0.0f;
+			actuators.control[actuator_controls_s::INDEX_YAW] = PX4_ISFINITE(att_control[2]) ? att_control[2] : 0.0f;
+			actuators.control[actuator_controls_s::INDEX_THROTTLE] = PX4_ISFINITE(att_control[3]) ? att_control[3] : 0.0f;
 			actuators.control[actuator_controls_s::INDEX_LANDING_GEAR] = (float)_landing_gear.landing_gear;
 			actuators.timestamp_sample = angular_velocity.timestamp_sample;
 

@@ -150,22 +150,25 @@ void LoggedTopics::add_default_topics()
 	add_topic("manual_control_setpoint",10);
 
 	//speed
-	add_topic("vehicle_gps_position",10);
-	add_topic("airspeed",10);
+	//add_topic("vehicle_gps_position",10);
+	//add_topic("airspeed",10);
 
-	add_topic("input_rc",10);
+	//add_topic("input_rc",10);
 	//attitude
-	add_topic("vehicle_attitude_setpoint",10);
-	add_topic("vehicle_attitude",10);
+	//add_topic("vehicle_attitude_setpoint",10);
+	//add_topic("vehicle_attitude",10);
 
 	//angle rates and acc
-	add_topic("sensor_combined",10);
-	add_topic("vehicle_rates_setpoint",10);
+	//add_topic("sensor_combined",10);
+	//add_topic("vehicle_rates_setpoint",10);
 
 	//actuators
 	add_topic("actuator_armed",10);
 	add_topic_multi("actuator_outputs", 100);
-
+	add_topic("actuator_controls_virtual_fw");
+	add_topic("actuator_controls_virtual_mc");
+	add_topic("actuator_controls_0");
+	add_topic("actuator_controls_1");
 }
 
 void LoggedTopics::add_high_rate_topics()

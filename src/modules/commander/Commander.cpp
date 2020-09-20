@@ -3203,7 +3203,8 @@ Commander::update_control_mode()
 		break;
 
 	case vehicle_status_s::NAVIGATION_STATE_STAB:
-		control_mode.flag_control_manual_enabled = true;
+		//control_mode.flag_control_manual_enabled = true;
+		control_mode.flag_control_manual_enabled = false;
 		control_mode.flag_control_rates_enabled = true;
 		control_mode.flag_control_attitude_enabled = true;
 		break;
