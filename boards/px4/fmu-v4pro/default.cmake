@@ -18,6 +18,7 @@ px4_add_board(
 		TEL4:/dev/ttyS6
 	DRIVERS
 		adc/board_adc
+		adc/ads1115
 		barometer # all available barometer drivers
 		batt_smbus
 		camera_capture
@@ -41,6 +42,7 @@ px4_add_board(
 		optical_flow/px4flow
 		#osd
 		pca9685
+		pca9685_pwm_out
 		power_monitor/ina226
 		#protocol_splitter
 		pwm_input
@@ -104,6 +106,7 @@ px4_add_board(
 		reboot
 		reflect
 		sd_bench
+		system_time
 		tests # tests and test runner
 		top
 		topic_listener

@@ -258,7 +258,7 @@ public:
 
 	bool			get_forwarding_on() { return _forwarding_on; }
 
-	bool			is_connected();
+	bool			is_connected() { return _tstatus.heartbeat_type_gcs; }
 
 #if defined(MAVLINK_UDP)
 	static Mavlink 		*get_instance_for_network_port(unsigned long port);
@@ -430,9 +430,7 @@ public:
 	/**
 	 * Get the receive status of this MAVLink link
 	 */
-	telemetry_status_s	&get_telemetry_status() { return _tstatus; }
-	void                    lock_telemetry_status() { pthread_mutex_lock(&_telemetry_status_mutex); }
-	void                    unlock_telemetry_status() { pthread_mutex_unlock(&_telemetry_status_mutex); }
+	telemetry_status_s	&telemetry_status() { return _tstatus; }
 	void                    telemetry_status_updated() { _tstatus_updated = true; }
 
 	void			set_telemetry_status_type(uint8_t type) { _tstatus.type = type; }
@@ -503,6 +501,8 @@ public:
 	bool hash_check_enabled() const { return _param_mav_hash_chk_en.get(); }
 	bool forward_heartbeats_enabled() const { return _param_mav_hb_forw_en.get(); }
 	bool odometry_loopback_enabled() const { return _param_mav_odom_lp.get(); }
+
+	bool failure_injection_enabled() const { return _param_sys_failure_injection_enabled.get(); }
 
 	struct ping_statistics_s {
 		uint64_t last_ping_time;
@@ -650,7 +650,6 @@ private:
 
 	pthread_mutex_t		_message_buffer_mutex {};
 	pthread_mutex_t		_send_mutex {};
-	pthread_mutex_t		_telemetry_status_mutex {};
 
 	DEFINE_PARAMETERS(
 		(ParamInt<px4::params::MAV_SYS_ID>) _param_mav_sys_id,
@@ -667,7 +666,8 @@ private:
 		(ParamBool<px4::params::MAV_HB_FORW_EN>) _param_mav_hb_forw_en,
 		(ParamBool<px4::params::MAV_ODOM_LP>) _param_mav_odom_lp,
 		(ParamInt<px4::params::MAV_RADIO_TOUT>)      _param_mav_radio_timeout,
-		(ParamInt<px4::params::SYS_HITL>) _param_sys_hitl
+		(ParamInt<px4::params::SYS_HITL>) _param_sys_hitl,
+		(ParamBool<px4::params::SYS_FAILURE_EN>) _param_sys_failure_injection_enabled
 	)
 
 	perf_counter_t _loop_perf{perf_alloc(PC_ELAPSED, MODULE_NAME": tx run elapsed")};                      /**< loop performance counter */

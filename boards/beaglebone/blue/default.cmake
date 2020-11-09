@@ -10,6 +10,7 @@ px4_add_board(
 	LABEL default
 	PLATFORM posix
 	ARCHITECTURE cortex-a8
+	ROMFSROOT px4fmu_common
 	TOOLCHAIN arm-linux-gnueabihf
 	TESTING
 	DRIVERS
@@ -72,6 +73,7 @@ px4_add_board(
 		pwm
 		sd_bench
 		shutdown
+		system_time
 		tests # tests and test runner
 		#top
 		topic_listener

@@ -43,13 +43,13 @@ else
 fi
 
 # To disable user input
-if [[ -n "$VERBOSE" ]]; then
+if [[ -n "$VERBOSE_SIM" ]]; then
 	verbose="--verbose"
 else
 	verbose=""
 fi
 
-if [ "$model" != none ]; then
+if [ "$program" == "jmavsim" ]; then
 	jmavsim_pid=`ps aux | grep java | grep "\-jar jmavsim_run.jar" | awk '{ print $2 }'`
 	if [ -n "$jmavsim_pid" ]; then
 		kill $jmavsim_pid
@@ -57,8 +57,13 @@ if [ "$model" != none ]; then
 fi
 
 if [ "$model" == "" ] || [ "$model" == "none" ]; then
-	echo "empty model, setting iris as default"
-	model="iris"
+	if [ "$program" == "jsbsim" ]; then
+		echo "empty model, setting rascal as default for jsbsim"
+		model="rascal"
+	else
+		echo "empty model, setting iris as default"
+		model="iris"
+	fi
 fi
 
 # kill process names that might stil
@@ -84,7 +89,7 @@ SIM_PID=0
 if [ "$program" == "jmavsim" ] && [ ! -n "$no_sim" ]; then
 	# Start Java simulator
 	"$src_path"/Tools/jmavsim_run.sh -r 250 -l &
-	SIM_PID=`echo $!`
+	SIM_PID=$!
 elif [ "$program" == "gazebo" ] && [ ! -n "$no_sim" ]; then
 	if [ -x "$(command -v gazebo)" ]; then
 		# Get the model name
@@ -108,7 +113,7 @@ elif [ "$program" == "gazebo" ] && [ ! -n "$no_sim" ]; then
 				fi
 			else
 				#Spawn empty world if world with model name doesn't exist
-				world_path= $verbose "${src_path}/Tools/sitl_gazebo/worlds/${world}.world"
+				world_path="${src_path}/Tools/sitl_gazebo/worlds/${world}.world"
 			fi
 		else
 			if [ -f ${src_path}/Tools/sitl_gazebo/worlds/${PX4_SITL_WORLD}.world ]; then
@@ -134,7 +139,7 @@ elif [ "$program" == "gazebo" ] && [ ! -n "$no_sim" ]; then
 			# is putting it into the background we need to avoid it by backing off
 			sleep 3
 			nice -n 20 gzclient --verbose &
-			GUI_PID=`echo $!`
+			GUI_PID=$!
 		fi
 	else
 		echo "You need to have gazebo simulator installed!"
@@ -145,7 +150,22 @@ elif [ "$program" == "flightgear" ] && [ -z "$no_sim" ]; then
 	cd "${src_path}/Tools/flightgear_bridge/"
 	"${src_path}/Tools/flightgear_bridge/FG_run.py" "models/"${model}".json" 0
 	"${build_path}/build_flightgear_bridge/flightgear_bridge" 0 `./get_FGbridge_params.py "models/"${model}".json"` &
-	FG_BRIDGE_PID=`echo $!`
+	FG_BRIDGE_PID=$!
+elif [ "$program" == "jsbsim" ] && [ -z "$no_sim" ]; then
+	source "$src_path/Tools/setup_jsbsim.bash" "${src_path}" "${build_path}" ${model}
+	if [[ -n "$HEADLESS" ]]; then
+		echo "not running flightgear gui"
+	else
+		fgfs --fdm=null \
+			--native-fdm=socket,in,60,,5550,udp \
+			--aircraft=$JSBSIM_AIRCRAFT_MODEL \
+			--airport=${world} \
+			--disable-hud \
+			--disable-ai-models &> /dev/null &
+		FGFS_PID=$!
+	fi
+	"${build_path}/build_jsbsim_bridge/jsbsim_bridge" ${model} -s "${src_path}/Tools/jsbsim_bridge/scene/${world}.xml" 2> /dev/null &
+	JSBSIM_PID=$!
 fi
 
 pushd "$rootfs" >/dev/null
@@ -156,7 +176,7 @@ set +e
 if [[ ${model} == test_* ]] || [[ ${model} == *_generated ]]; then
 	sitl_command="\"$sitl_bin\" $no_pxh \"$src_path\"/ROMFS/px4fmu_test -s \"${src_path}\"/posix-configs/SITL/init/test/${model} -t \"$src_path\"/test_data"
 else
-	sitl_command="\"$sitl_bin\" $no_pxh \"$src_path\"/ROMFS/px4fmu_common -s etc/init.d-posix/rcS -t \"$src_path\"/test_data"
+	sitl_command="\"$sitl_bin\" $no_pxh \"$build_path\"/etc -s etc/init.d-posix/rcS -t \"$src_path\"/test_data"
 fi
 
 echo SITL COMMAND: $sitl_command
@@ -199,4 +219,7 @@ elif [ "$program" == "gazebo" ]; then
 elif [ "$program" == "flightgear" ]; then
 	kill $FG_BRIDGE_PID
 	kill -9 `cat /tmp/px4fgfspid_0`
+elif [ "$program" == "jsbsim" ]; then
+	kill $JSBSIM_PID
+	kill $FGFS_PID
 fi

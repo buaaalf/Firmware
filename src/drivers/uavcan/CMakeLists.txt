@@ -113,6 +113,7 @@ add_custom_target(px4_uavcan_dsdlc DEPENDS px4_uavcan_dsdlc_run.stamp)
 px4_add_module(
 	MODULE drivers__uavcan
 	MAIN uavcan
+	STACK_MAIN 4096
 	INCLUDES
 		${DSDLC_OUTPUT}
 		${LIBUAVCAN_DIR}/libuavcan/include
@@ -120,6 +121,9 @@ px4_add_module(
 		${LIBUAVCAN_DIR}/libuavcan_drivers/posix/include
 		${LIBUAVCAN_DIR_DRIVERS}/${UAVCAN_DRIVER}/driver/include
 	SRCS
+		rgbled.cpp
+		rgbled.hpp
+
 		# Main
 		uavcan_main.cpp
 		uavcan_servers.cpp
@@ -142,6 +146,7 @@ px4_add_module(
 	DEPENDS
 		px4_uavcan_dsdlc
 
+		led
 		mixer
 		mixer_module
 		output_limit
